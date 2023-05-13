@@ -3,4 +3,4 @@
 *.exe
 .idea/
 .vscode/
-go.work
+go.work*
