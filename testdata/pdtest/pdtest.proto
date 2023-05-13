@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package gapi.testdata.pdtest;
+
+option go_package = "github.com/vizee/gapi/testdata/pdtest";
+
+import "gapi/annotation.proto";
+import "inc.proto";
+
+service TestService {
+    option (gapi.server) = "test-server";
+    option (gapi.default_handler) = "test-default_handler";
+    option (gapi.default_timeout) = 5000;
+    option (gapi.path_prefix) = "/path/prefix";
+    option (gapi.use) = "service-use-0";
+    option (gapi.use) = "service-use-1";
+
+    rpc Add (AddRequest) returns (AddResponse) {
+        option (gapi.http) = {
+            post: "/add"
+        };
+    }
+
+    rpc Say (SayRequest) returns (SayResponse) {
+        option (gapi.http) = {
+            post: "/say"
+            use: "say-use-0"
+            use: "say-use-1"
+            handler: "say-handler"
+            timeout: 7000
+        };
+    }
+}
+
+message AddRequest {
+    int32 a = 1;
+    int32 b = 2;
+}
+
+message AddResponse {
+    int32 sum = 1;
+}
+
+message SayRequest {
+    string what = 1;
+    string userId = 2 [(gapi.alias) = "uid", (gapi.bind) = FROM_CONTEXT];
+}
+
+message User {
+    string name = 1;
+    int32 age = 2;
+}
+
+message SayResponse {
+    string text = 1;
+    User who = 2;
+    repeated User mentions = 3 [(gapi.omit_empty) = true];
+    message Embedded {
+        string ip = 1;
+    }
+    Embedded embedded = 4;
+    map<string, User> users = 5;
+    Location loc = 6;
+}

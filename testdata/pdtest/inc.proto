@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package gapi.testdata.pdtest;
+
+option go_package = "github.com/vizee/gapi/testdata/pdtest";
+
+import "gapi/annotation.proto";
+
+message Location {
+    string city = 1 [(gapi.omit_empty) = true];
+}
