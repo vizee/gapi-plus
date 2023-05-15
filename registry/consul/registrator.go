@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/vizee/gapi-plus/registry/consul/internal/liteconsul"
+	"github.com/vizee/gapi-plus/registry/consul/liteconsul"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 )

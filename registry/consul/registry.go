@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/vizee/gapi-plus/apimeta"
-	"github.com/vizee/gapi-plus/registry/consul/internal/liteconsul"
+	"github.com/vizee/gapi-plus/registry/consul/liteconsul"
 	"github.com/vizee/gapi/metadata"
 )
 
@@ -116,7 +116,10 @@ func (r *Registry) Watch(ctx context.Context, update func() bool) error {
 			LastIndex: lastNotified,
 			WaitTime:  60 * time.Second,
 		})
-		if err != nil || meta.LastIndex == lastNotified {
+		if err != nil || lastNotified == meta.LastIndex {
+			if liteconsul.IsNotFound(err) {
+				lastNotified = meta.LastIndex
+			}
 			time.Sleep(time.Second)
 			continue
 		}
