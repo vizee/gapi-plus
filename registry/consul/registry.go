@@ -108,7 +108,7 @@ func (r *Registry) Sync(ctx context.Context, force bool) ([]*metadata.Route, err
 	return content, nil
 }
 
-func (r *Registry) Watch(ctx context.Context, update func() bool) error {
+func (r *Registry) Watch(ctx context.Context, update func() error) error {
 	key := fmt.Sprintf("%s/notify", r.prefix)
 	lastNotified := uint64(0)
 	for ctx.Err() == nil {
@@ -123,10 +123,11 @@ func (r *Registry) Watch(ctx context.Context, update func() bool) error {
 			time.Sleep(time.Second)
 			continue
 		}
-		ok := update()
-		if ok {
-			lastNotified = meta.LastIndex
+		err = update()
+		if err != nil {
+			return nil
 		}
+		lastNotified = meta.LastIndex
 	}
 	return nil
 }
