@@ -1,33 +1,117 @@
 package consul
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"fmt"
+	"io"
+	"strings"
 	"sync"
 	"time"
 
-	"github.com/vizee/gapi-plus/apimeta"
 	"github.com/vizee/gapi-plus/registry/consul/liteconsul"
-	"github.com/vizee/gapi/metadata"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/descriptorpb"
 )
 
-type fileInfo struct {
-	content []*metadata.Route
-	index   uint64
+type Extractor[T any] interface {
+	Extract(fds []*descriptorpb.FileDescriptorProto) (T, error)
 }
 
-type Registry struct {
-	client     *liteconsul.Client
+type fileInfo struct {
+	fd    *descriptorpb.FileDescriptorProto
+	index uint64
+}
+
+type serverInfo[T any] struct {
+	files   map[string]*fileInfo
+	content T
+	dirty   bool
+}
+
+type Registry[T any, E Extractor[T]] struct {
 	prefix     string
+	client     *liteconsul.Client
+	extractor  E
 	knownIndex uint64
-	files      map[string]*fileInfo
+	servers    map[string]*serverInfo[T]
 	mu         sync.Mutex
 }
 
-func (r *Registry) Sync(ctx context.Context, force bool) ([]*metadata.Route, error) {
-	keyPrefix := fmt.Sprintf("%s/data/", r.prefix)
+func (r *Registry[T, E]) syncServerFiles(ctx context.Context, prefix string, server string, entries []liteconsul.KVEntry) (bool, error) {
+	si := r.servers[server]
+	if si == nil {
+		si = &serverInfo[T]{
+			files: make(map[string]*fileInfo),
+		}
+		r.servers[server] = si
+	}
 
-	changed := false
+	dirty := false
+	for i := range entries {
+		e := &entries[i]
+		fname := e.Key[len(prefix)+len(server)+1:]
+		newFile := false
+		fi := si.files[fname]
+		if fi == nil {
+			fi = &fileInfo{}
+			newFile = true
+		} else if fi.index == e.ModifyIndex {
+			continue
+		}
+
+		fd, err := parseFileDescriptor(e.Value)
+		if err != nil {
+			return false, err
+		}
+
+		fi.fd = fd
+		fi.index = e.ModifyIndex
+
+		if newFile {
+			si.files[fname] = fi
+		}
+		dirty = true
+	}
+
+	if len(si.files) > len(entries) {
+		inuse := make(map[string]bool, len(entries))
+		for i := range entries {
+			e := &entries[i]
+			fname := e.Key[len(prefix)+len(server)+1:]
+			inuse[fname] = true
+		}
+		for name := range si.files {
+			if !inuse[name] {
+				delete(si.files, name)
+			}
+		}
+		dirty = true
+	}
+
+	if dirty {
+		si.dirty = dirty
+	}
+
+	if si.dirty {
+		fds := make([]*descriptorpb.FileDescriptorProto, 0, len(si.files))
+		for _, fi := range si.files {
+			fds = append(fds, fi.fd)
+		}
+		content, err := r.extractor.Extract(fds)
+		if err != nil {
+			return false, err
+		}
+		si.content = content
+		si.dirty = false
+	}
+
+	return dirty, nil
+}
+
+func (r *Registry[T, E]) Sync(ctx context.Context, force bool) ([]T, error) {
+	keyPrefix := fmt.Sprintf("%s/data/", r.prefix)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -40,75 +124,61 @@ func (r *Registry) Sync(ctx context.Context, force bool) ([]*metadata.Route, err
 	if r.knownIndex == rootMeta.LastIndex && !force {
 		return nil, nil
 	}
-
-	if force {
-		// 直接清空已存在路由
-		r.files = make(map[string]*fileInfo, len(entries))
-	}
-
-	rc := &apimeta.ResolvingCache{}
-
-	for i := range entries {
-		e := &entries[i]
-		filename := e.Key[len(keyPrefix):]
-		newFile := false
-		fi := r.files[filename]
-		if fi == nil {
-			fi = &fileInfo{}
-			newFile = true
-		} else if fi.index == e.ModifyIndex {
-			continue
-		}
-
-		sds, err := parseServiceDesc(e.Value)
-		if err != nil {
-			return nil, err
-		}
-		routes, err := apimeta.ResolveRoutes(rc, sds, false)
-		if err != nil {
-			return nil, err
-		}
-
-		fi.content = routes
-		fi.index = e.ModifyIndex
-		if newFile {
-			r.files[filename] = fi
-		}
-		changed = true
-	}
-
-	if len(r.files) > len(entries) {
-		// 把 entries 合并入 r.files 后，r.files 长度应该和 entries 相同，否则就是有多余的文件
-		inuse := make(map[string]bool, len(entries))
-		for _, e := range entries {
-			inuse[e.Key[len(keyPrefix):]] = true
-		}
-		for filename := range r.files {
-			if !inuse[filename] {
-				delete(r.files, filename)
-			}
-		}
-		changed = true
-	}
-
+	// 不论成功或者失败都不再处理这个 index
 	r.knownIndex = rootMeta.LastIndex
 
-	if !changed {
+	if force {
+		// 强制更新时直接清空已有数据
+		r.servers = make(map[string]*serverInfo[T])
+	}
+
+	mergeContent := false
+	var group string
+	start := 0
+	for i := range entries {
+		e := &entries[i]
+		fname := e.Key[len(keyPrefix):]
+		slash := strings.IndexByte(fname, '/')
+		if slash < 0 {
+			return nil, fmt.Errorf("invalid data key: %s", e.Key)
+		}
+		serverName := fname[:slash]
+		if i == 0 {
+			group = serverName
+		} else if group != serverName {
+			updated, err := r.syncServerFiles(ctx, keyPrefix, group, entries[start:i])
+			if err != nil {
+				return nil, err
+			}
+			if updated {
+				mergeContent = true
+			}
+			group = serverName
+			start = i
+		}
+	}
+	if len(entries) > 0 {
+		changed, err := r.syncServerFiles(ctx, keyPrefix, group, entries[start:])
+		if err != nil {
+			return nil, err
+		}
+		if changed {
+			mergeContent = true
+		}
+	}
+
+	if !mergeContent {
 		return nil, nil
 	}
 
-	total := 0
-	for _, fi := range r.files {
-		total += len(fi.content)
-	}
-	content := make([]*metadata.Route, 0, total)
-	for _, fi := range r.files {
-		content = append(content, fi.content...)
+	content := make([]T, 0, len(r.servers))
+	for _, si := range r.servers {
+		content = append(content, si.content)
 	}
 	return content, nil
 }
 
-func (r *Registry) Watch(ctx context.Context, update func() error) error {
+func (r *Registry[T, E]) Watch(ctx context.Context, update func() error) error {
 	key := fmt.Sprintf("%s/notify", r.prefix)
 	lastNotified := uint64(0)
 	for ctx.Err() == nil {
@@ -132,10 +202,33 @@ func (r *Registry) Watch(ctx context.Context, update func() error) error {
 	return nil
 }
 
-func NewRegistry(client *liteconsul.Client, prefix string) *Registry {
-	return &Registry{
-		client: client,
-		prefix: prefix,
-		files:  make(map[string]*fileInfo),
+func NewRegistry[T any, E Extractor[T]](client *liteconsul.Client, prefix string, extractor E) *Registry[T, E] {
+	return &Registry[T, E]{
+		prefix:     prefix,
+		client:     client,
+		extractor:  extractor,
+		knownIndex: 0,
 	}
+}
+
+func gzipDecompress(data []byte) ([]byte, error) {
+	gr, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	defer gr.Close()
+	return io.ReadAll(gr)
+}
+
+func parseFileDescriptor(data []byte) (*descriptorpb.FileDescriptorProto, error) {
+	pddata, err := gzipDecompress(data)
+	if err != nil {
+		return nil, err
+	}
+	fd := &descriptorpb.FileDescriptorProto{}
+	err = proto.Unmarshal(pddata, fd)
+	if err != nil {
+		return nil, err
+	}
+	return fd, nil
 }

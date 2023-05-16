@@ -1,16 +1,6 @@
 github.com/golang/protobuf v1.5.0/go.mod h1:FsONVRAS9T7sI+LIUmWTfcYkHO4aIWwzhcaSAoJOfIk=
 github.com/google/go-cmp v0.5.5 h1:Khx7svrCpmxxtHBq5j2mp/xVjsi8hQMfNLvJFAlrGgU=
 github.com/google/go-cmp v0.5.5/go.mod h1:v8dTdLbMG2kIc/vJvl+f65V22dbkXbowE6jgT/gNBxE=
-github.com/vizee/gapi v0.4.0 h1:s2E3lP/evpF4kn/EEGy385QOP14LgXNKyLv8gnxq9ho=
-github.com/vizee/gapi v0.4.0/go.mod h1:7l758TRyOuoavSJbBzXCXK43A0Kzqi7HuYcb68R5W3Y=
-github.com/vizee/gapi-plus/apimeta v0.1.0 h1:Z7p6bqOLPanvFESUjl//ndOhWAVSAErjcxHnH5Ql4bE=
-github.com/vizee/gapi-plus/apimeta v0.1.0/go.mod h1:SMWTWXzUM4IkkUmVYXj4OGJ+uKqapC3jpBFH0ACKsLg=
-github.com/vizee/gapi-plus/proto v0.2.0 h1:d5L6YITfVlXEfoWLpVoRW6vf9JSMrUSzNsK7Ux0vqjo=
-github.com/vizee/gapi-plus/proto v0.2.0/go.mod h1:vYwGw9dSnHKxdpEKDJEyNa1sUi9kz8kcsffR7i7qGk4=
-github.com/vizee/gapi-proto-go v0.0.0-20230505112701-bca324ad1c1e h1:3HTmMrUx7Peptebd+xM4p43vhWoNZET2axv1WPLF7Gs=
-github.com/vizee/gapi-proto-go v0.0.0-20230505112701-bca324ad1c1e/go.mod h1:KljpUV/yxawROIwk/Q6eSS7+pLiSlsJsw8cQhaInOQM=
-github.com/vizee/jsonpb v0.2.0 h1:k/GFVAvnMW/AEegLR1YC3BVp1UPmz0D8hw7r3zirfkQ=
-github.com/vizee/jsonpb v0.2.0/go.mod h1:ewTuTSldbqAAE6fEkSWH8vqDKlnB+JpRg7vvYIPuiWM=
 golang.org/x/xerrors v0.0.0-20191204190536-9bdfabe68543 h1:E7g+9GITq07hpfrRu66IVDexMakfv52eLZ2CXBWiKr4=
 golang.org/x/xerrors v0.0.0-20191204190536-9bdfabe68543/go.mod h1:I/5z698sn9Ka8TeJc9MKroUUfqBBauWjQqLJ2OPfmY0=
 google.golang.org/protobuf v1.26.0-rc.1/go.mod h1:jlhhOSvTdKEhbULTjvd4ARK9grFBp09yW+WbY/TyQbw=
