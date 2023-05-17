@@ -15,8 +15,8 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
-type Extractor[T any] interface {
-	Extract(fds []*descriptorpb.FileDescriptorProto) (T, error)
+type Updater interface {
+	Update(server string, fds []*descriptorpb.FileDescriptorProto) error
 }
 
 type fileInfo struct {
@@ -24,25 +24,24 @@ type fileInfo struct {
 	index uint64
 }
 
-type serverInfo[T any] struct {
-	files   map[string]*fileInfo
-	content T
-	dirty   bool
+type serverInfo struct {
+	files map[string]*fileInfo
+	dirty bool
 }
 
-type Registry[T any, E Extractor[T]] struct {
+type Registry[U Updater] struct {
 	prefix     string
 	client     *liteconsul.Client
-	extractor  E
+	updater    U
 	knownIndex uint64
-	servers    map[string]*serverInfo[T]
+	servers    map[string]*serverInfo
 	mu         sync.Mutex
 }
 
-func (r *Registry[T, E]) syncServerFiles(ctx context.Context, prefix string, server string, entries []liteconsul.KVEntry) (bool, error) {
+func (r *Registry[U]) syncServerFiles(ctx context.Context, prefix string, server string, entries []liteconsul.KVEntry) error {
 	si := r.servers[server]
 	if si == nil {
-		si = &serverInfo[T]{
+		si = &serverInfo{
 			files: make(map[string]*fileInfo),
 		}
 		r.servers[server] = si
@@ -63,7 +62,7 @@ func (r *Registry[T, E]) syncServerFiles(ctx context.Context, prefix string, ser
 
 		fd, err := parseFileDescriptor(e.Value)
 		if err != nil {
-			return false, err
+			return err
 		}
 
 		fi.fd = fd
@@ -99,18 +98,17 @@ func (r *Registry[T, E]) syncServerFiles(ctx context.Context, prefix string, ser
 		for _, fi := range si.files {
 			fds = append(fds, fi.fd)
 		}
-		content, err := r.extractor.Extract(fds)
+		err := r.updater.Update(server, fds)
 		if err != nil {
-			return false, err
+			return err
 		}
-		si.content = content
 		si.dirty = false
 	}
 
-	return dirty, nil
+	return nil
 }
 
-func (r *Registry[T, E]) Sync(ctx context.Context, force bool) ([]T, error) {
+func (r *Registry[U]) Sync(ctx context.Context, force bool) error {
 	keyPrefix := fmt.Sprintf("%s/data/", r.prefix)
 
 	r.mu.Lock()
@@ -118,21 +116,20 @@ func (r *Registry[T, E]) Sync(ctx context.Context, force bool) ([]T, error) {
 
 	entries, rootMeta, err := r.client.KV().List(ctx, keyPrefix, nil)
 	if err != nil && !liteconsul.IsNotFound(err) {
-		return nil, err
+		return err
 	}
 
 	if r.knownIndex == rootMeta.LastIndex && !force {
-		return nil, nil
+		return nil
 	}
 	// 不论成功或者失败都不再处理这个 index
 	r.knownIndex = rootMeta.LastIndex
 
 	if force {
 		// 强制更新时直接清空已有数据
-		r.servers = make(map[string]*serverInfo[T])
+		r.servers = make(map[string]*serverInfo)
 	}
 
-	mergeContent := false
 	var group string
 	start := 0
 	for i := range entries {
@@ -140,45 +137,30 @@ func (r *Registry[T, E]) Sync(ctx context.Context, force bool) ([]T, error) {
 		fname := e.Key[len(keyPrefix):]
 		slash := strings.IndexByte(fname, '/')
 		if slash < 0 {
-			return nil, fmt.Errorf("invalid data key: %s", e.Key)
+			return fmt.Errorf("invalid data key: %s", e.Key)
 		}
 		serverName := fname[:slash]
 		if i == 0 {
 			group = serverName
 		} else if group != serverName {
-			updated, err := r.syncServerFiles(ctx, keyPrefix, group, entries[start:i])
+			err := r.syncServerFiles(ctx, keyPrefix, group, entries[start:i])
 			if err != nil {
-				return nil, err
-			}
-			if updated {
-				mergeContent = true
+				return err
 			}
 			group = serverName
 			start = i
 		}
 	}
 	if len(entries) > 0 {
-		changed, err := r.syncServerFiles(ctx, keyPrefix, group, entries[start:])
+		err := r.syncServerFiles(ctx, keyPrefix, group, entries[start:])
 		if err != nil {
-			return nil, err
-		}
-		if changed {
-			mergeContent = true
+			return err
 		}
 	}
-
-	if !mergeContent {
-		return nil, nil
-	}
-
-	content := make([]T, 0, len(r.servers))
-	for _, si := range r.servers {
-		content = append(content, si.content)
-	}
-	return content, nil
+	return nil
 }
 
-func (r *Registry[T, E]) Watch(ctx context.Context, update func() error) error {
+func (r *Registry[U]) Watch(ctx context.Context, update func() error) error {
 	key := fmt.Sprintf("%s/notify", r.prefix)
 	lastNotified := uint64(0)
 	for ctx.Err() == nil {
@@ -202,11 +184,11 @@ func (r *Registry[T, E]) Watch(ctx context.Context, update func() error) error {
 	return nil
 }
 
-func NewRegistry[T any, E Extractor[T]](client *liteconsul.Client, prefix string, extractor E) *Registry[T, E] {
-	return &Registry[T, E]{
+func NewRegistry[U Updater](client *liteconsul.Client, prefix string, updater U) *Registry[U] {
+	return &Registry[U]{
 		prefix:     prefix,
 		client:     client,
-		extractor:  extractor,
+		updater:    updater,
 		knownIndex: 0,
 	}
 }
