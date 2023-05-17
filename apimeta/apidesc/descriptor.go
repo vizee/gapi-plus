@@ -1,10 +1,10 @@
-package apimeta
+package apidesc
 
 import (
 	"errors"
-	"strings"
 	"time"
 
+	"github.com/vizee/gapi-plus/apimeta/internal/helpers"
 	"github.com/vizee/gapi-plus/apimeta/internal/slices"
 	"github.com/vizee/gapi-plus/proto/descriptor"
 	annotation "github.com/vizee/gapi-proto-go/gapi"
@@ -13,18 +13,13 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
-type messageDesc struct {
-	*jsonpb.Message
-	bindings []metadata.FieldBinding
-}
-
 type ResolvingCache struct {
-	msgs map[string]*messageDesc
+	msgs map[string]*helpers.Message
 }
 
-func (rc *ResolvingCache) resolveMessage(md *descriptor.MessageDesc) *messageDesc {
+func (rc *ResolvingCache) resolveMessage(md *descriptor.MessageDesc) *helpers.Message {
 	if rc.msgs == nil {
-		rc.msgs = make(map[string]*messageDesc)
+		rc.msgs = make(map[string]*helpers.Message)
 	}
 
 	msg := rc.msgs[md.Name]
@@ -32,7 +27,7 @@ func (rc *ResolvingCache) resolveMessage(md *descriptor.MessageDesc) *messageDes
 		return msg
 	}
 
-	msg = &messageDesc{
+	msg = &helpers.Message{
 		Message: &jsonpb.Message{
 			Name:   md.Name,
 			Fields: make([]jsonpb.Field, 0, len(md.Fields)),
@@ -42,7 +37,7 @@ func (rc *ResolvingCache) resolveMessage(md *descriptor.MessageDesc) *messageDes
 	rc.msgs[msg.Name] = msg
 
 	for _, fd := range md.Fields {
-		kind, ok := getTypeKind(fd.Type)
+		kind, ok := helpers.GetTypeKind(fd.Type)
 		if !ok {
 			continue
 		}
@@ -85,7 +80,7 @@ func (rc *ResolvingCache) resolveMessage(md *descriptor.MessageDesc) *messageDes
 			case annotation.FIELD_BIND_FROM_CONTEXT:
 				bind = metadata.BindContext
 			}
-			msg.bindings = append(msg.bindings, metadata.FieldBinding{
+			msg.Bindings = append(msg.Bindings, metadata.FieldBinding{
 				Name: name,
 				Kind: kind,
 				Tag:  uint32(fd.Tag),
@@ -94,12 +89,11 @@ func (rc *ResolvingCache) resolveMessage(md *descriptor.MessageDesc) *messageDes
 		}
 	}
 
+	msg.Fields = slices.Shrink(msg.Fields)
 	msg.BakeTagIndex()
 	msg.BakeNameIndex()
 
-	if len(msg.bindings) > 0 {
-		msg.bindings = slices.Shrink(msg.bindings)
-	}
+	msg.Bindings = slices.Shrink(msg.Bindings)
 
 	return msg
 }
@@ -128,7 +122,7 @@ walksd:
 			return nil, errors.New("invalid service '" + sd.Name + "'")
 		}
 		for _, use := range sd.Opts.Use {
-			if !checkMiddlewareName(use) {
+			if !helpers.CheckMiddlewareName(use) {
 				if ignoreError {
 					continue walksd
 				}
@@ -139,7 +133,7 @@ walksd:
 	walkmd:
 		for _, md := range sd.Methods {
 			for _, use := range md.Opts.Use {
-				if !checkMiddlewareName(use) {
+				if !helpers.CheckMiddlewareName(use) {
 					if ignoreError {
 						continue walkmd
 					}
@@ -151,7 +145,7 @@ walksd:
 			if handler == "" {
 				handler = sd.Opts.DefaultHandler
 			}
-			if handler == "" || md.Opts.Method == "" || md.Opts.Path == "" || md.In == nil || md.In.Incomplete || md.Out == nil || md.Out.Incomplete {
+			if handler == "" || md.Streaming || md.Opts.Method == "" || md.Opts.Path == "" || md.In == nil || md.In.Incomplete || md.Out == nil || md.Out.Incomplete {
 				if ignoreError {
 					continue
 				}
@@ -171,10 +165,10 @@ walksd:
 				Call: &metadata.Call{
 					Server:   server,
 					Handler:  handler,
-					Method:   concatFullMethodName(sd.FullName, md.Name),
+					Method:   helpers.ConcatFullMethodName(sd.FullName, md.Name),
 					In:       inMsg.Message,
 					Out:      rc.resolveMessage(md.Out).Message,
-					Bindings: inMsg.bindings,
+					Bindings: inMsg.Bindings,
 					Timeout:  time.Duration(timeout) * time.Millisecond,
 				},
 			})
@@ -182,72 +176,4 @@ walksd:
 	}
 
 	return routes, nil
-}
-
-func concatFullMethodName(serviceName string, methodName string) string {
-	var s strings.Builder
-	s.Grow(2 + len(serviceName) + len(methodName))
-	s.WriteByte('/')
-	s.WriteString(serviceName)
-	s.WriteByte('/')
-	s.WriteString(methodName)
-	return s.String()
-}
-
-func checkMiddlewareName(name string) bool {
-	if name == "" {
-		return false
-	}
-
-	for i := 0; i < len(name); i++ {
-		c := name[i]
-		if 'a' <= c && c <= 'z' ||
-			'A' <= c && c <= 'Z' ||
-			'0' <= c && c <= '9' ||
-			c == '_' || c == '-' {
-			continue
-		}
-		return false
-	}
-	return true
-}
-
-func getTypeKind(ty descriptorpb.FieldDescriptorProto_Type) (jsonpb.Kind, bool) {
-	switch ty {
-	case descriptorpb.FieldDescriptorProto_TYPE_DOUBLE:
-		return jsonpb.DoubleKind, true
-	case descriptorpb.FieldDescriptorProto_TYPE_FLOAT:
-		return jsonpb.FloatKind, true
-	case descriptorpb.FieldDescriptorProto_TYPE_INT64:
-		return jsonpb.Int64Kind, true
-	case descriptorpb.FieldDescriptorProto_TYPE_UINT64:
-		return jsonpb.Uint64Kind, true
-	case descriptorpb.FieldDescriptorProto_TYPE_INT32:
-		return jsonpb.Int32Kind, true
-	case descriptorpb.FieldDescriptorProto_TYPE_FIXED64:
-		return jsonpb.Fixed64Kind, true
-	case descriptorpb.FieldDescriptorProto_TYPE_FIXED32:
-		return jsonpb.Fixed32Kind, true
-	case descriptorpb.FieldDescriptorProto_TYPE_BOOL:
-		return jsonpb.BoolKind, true
-	case descriptorpb.FieldDescriptorProto_TYPE_STRING:
-		return jsonpb.StringKind, true
-	case descriptorpb.FieldDescriptorProto_TYPE_MESSAGE:
-		return jsonpb.MessageKind, true
-	case descriptorpb.FieldDescriptorProto_TYPE_BYTES:
-		return jsonpb.BytesKind, true
-	case descriptorpb.FieldDescriptorProto_TYPE_UINT32:
-		return jsonpb.Uint32Kind, true
-	case descriptorpb.FieldDescriptorProto_TYPE_ENUM:
-		return jsonpb.Int32Kind, true
-	case descriptorpb.FieldDescriptorProto_TYPE_SFIXED32:
-		return jsonpb.Sfixed32Kind, true
-	case descriptorpb.FieldDescriptorProto_TYPE_SFIXED64:
-		return jsonpb.Sfixed64Kind, true
-	case descriptorpb.FieldDescriptorProto_TYPE_SINT32:
-		return jsonpb.Sint32Kind, true
-	case descriptorpb.FieldDescriptorProto_TYPE_SINT64:
-		return jsonpb.Sint64Kind, true
-	}
-	return 0, false
 }

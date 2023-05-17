@@ -1,4 +1,4 @@
-package apimeta
+package apidesc
 
 import (
 	"encoding/json"
@@ -11,7 +11,7 @@ import (
 )
 
 func TestResolveRoutes(t *testing.T) {
-	data, err := os.ReadFile("../testdata/pdtest/pdtest.pd")
+	data, err := os.ReadFile("../../testdata/pdtest/pdtest.pd")
 	if err != nil {
 		t.Fatal(err)
 	}
