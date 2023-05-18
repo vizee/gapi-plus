@@ -186,7 +186,7 @@ func (r *Registry[U]) Watch(ctx context.Context, update func() error) error {
 
 func NewRegistry[U Updater](client *liteconsul.Client, prefix string, updater U) *Registry[U] {
 	return &Registry[U]{
-		prefix:     prefix,
+		prefix:     strings.TrimPrefix(prefix, "/"),
 		client:     client,
 		updater:    updater,
 		knownIndex: 0,

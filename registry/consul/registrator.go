@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/vizee/gapi-plus/registry/consul/liteconsul"
@@ -44,7 +45,7 @@ func (r *Registrator) setFileData(chksumKey string, chksum string, dataKey strin
 		EmitKV(&liteconsul.TxnOpKV{
 			Verb:  liteconsul.VerbCAS,
 			Key:   chksumKey,
-			Value: []byte(chksumKey),
+			Value: []byte(chksum),
 			Index: lastVer,
 		}).
 		EmitKV(&liteconsul.TxnOpKV{
@@ -127,7 +128,7 @@ func (r *Registrator) RegisterFiles(ctx context.Context, server string, files []
 func NewRegistrator(client *liteconsul.Client, prefix string) *Registrator {
 	return &Registrator{
 		client: client,
-		prefix: prefix,
+		prefix: strings.TrimPrefix(prefix, "/"),
 	}
 }
 
