@@ -18,6 +18,7 @@ type Parser struct {
 	ns     []string
 	prefix string
 	msgs   map[string]*helpers.Message
+	routes []*metadata.Route
 }
 
 func NewParser() *Parser {
@@ -149,22 +150,22 @@ func (p *Parser) parseMessage(md *descriptorpb.DescriptorProto) error {
 	return nil
 }
 
-func (p *Parser) parseService(routes []*metadata.Route, sd *descriptorpb.ServiceDescriptorProto, ignoreError bool) ([]*metadata.Route, error) {
+func (p *Parser) parseService(sd *descriptorpb.ServiceDescriptorProto, ignoreError bool) error {
 	server := getOption(proto.GetExtension(sd.Options, annotation.E_Server), "")
 	if server == "" {
 		if ignoreError {
-			return routes, nil
+			return nil
 		}
-		return nil, errors.New("invalid service name '" + sd.GetName() + "'")
+		return errors.New("invalid service name '" + sd.GetName() + "'")
 	}
 
 	commonUses, _ := proto.GetExtension(sd.Options, annotation.E_Use).([]string)
 	for _, use := range commonUses {
 		if !helpers.CheckMiddlewareName(use) {
 			if ignoreError {
-				return routes, nil
+				return nil
 			}
-			return nil, errors.New("invalid middleware name '" + use + "'")
+			return errors.New("invalid middleware name '" + use + "'")
 		}
 	}
 
@@ -184,7 +185,7 @@ walkmd:
 				if ignoreError {
 					continue walkmd
 				}
-				return nil, errors.New("invalid middleware name '" + use + "'")
+				return errors.New("invalid middleware name '" + use + "'")
 			}
 		}
 
@@ -221,7 +222,7 @@ walkmd:
 			if ignoreError {
 				continue
 			}
-			return nil, errors.New("invalid method '" + md.GetName() + "'")
+			return errors.New("invalid method '" + md.GetName() + "'")
 		}
 
 		timeout := httpOpt.Timeout
@@ -233,7 +234,7 @@ walkmd:
 		serviceFullname := normalName(p.prefix + "." + sd.GetName())
 
 		inMsg := p.getMessage(md.GetInputType())
-		routes = append(routes, &metadata.Route{
+		p.routes = append(p.routes, &metadata.Route{
 			Method: method,
 			Path:   pathPrefix + path,
 			Use:    slices.Merge(commonUses, httpOpt.Use),
@@ -249,29 +250,29 @@ walkmd:
 		})
 	}
 
-	return routes, nil
+	return nil
 }
 
-func (p *Parser) AddFile(routes []*metadata.Route, fd *descriptorpb.FileDescriptorProto, ignoreError bool) ([]*metadata.Route, error) {
+func (p *Parser) AddFile(fd *descriptorpb.FileDescriptorProto, ignoreError bool) error {
 	p.enter(fd.GetPackage())
 	defer p.leave()
 
 	for _, dp := range fd.MessageType {
 		err := p.parseMessage(dp)
 		if err != nil {
-			return nil, err
+			return err
 		}
 	}
 
 	for _, sd := range fd.Service {
 		var err error
-		routes, err = p.parseService(routes, sd, ignoreError)
+		err = p.parseService(sd, ignoreError)
 		if err != nil {
-			return nil, err
+			return err
 		}
 	}
 
-	return routes, nil
+	return nil
 }
 
 func (p *Parser) CheckIncomplete() []string {
@@ -282,6 +283,10 @@ func (p *Parser) CheckIncomplete() []string {
 		}
 	}
 	return incomplete
+}
+
+func (p *Parser) Routes() []*metadata.Route {
+	return p.routes
 }
 
 func normalName(name string) string {
