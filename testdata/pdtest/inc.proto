@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package gapi.testdata.pdtest;
 
-option go_package = "github.com/vizee/gapi/testdata/pdtest";
+option go_package = "github.com/vizee/gapi-plus/testdata/pdtest";
 
 import "gapi/annotation.proto";
 
