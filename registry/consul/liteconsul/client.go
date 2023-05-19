@@ -43,9 +43,9 @@ func (c *Client) send(ctx context.Context, r *request) (*http.Response, error) {
 	u.WriteString(r.path)
 	for i := 0; i+1 < len(r.params); i += 2 {
 		if i == 0 {
-			u.WriteByte('&')
-		} else {
 			u.WriteByte('?')
+		} else {
+			u.WriteByte('&')
 		}
 		u.WriteString(url.QueryEscape(r.params[i]))
 		u.WriteByte('=')
