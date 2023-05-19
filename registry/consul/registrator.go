@@ -19,6 +19,7 @@ import (
 type Registrator struct {
 	client *liteconsul.Client
 	prefix string
+	update bool
 }
 
 func (r *Registrator) getChecksumKey(server string, file string) string {
@@ -57,7 +58,7 @@ func (r *Registrator) setFileData(chksumKey string, chksum string, dataKey strin
 	return ok, err
 }
 
-func (r *Registrator) syncFileData(ctx context.Context, server string, filename string, data []byte) error {
+func (r *Registrator) syncFileData(ctx context.Context, server string, filename string, data []byte) (bool, error) {
 	dataKey := r.getDataKey(server, filename)
 	chksumKey := r.getChecksumKey(server, filename)
 
@@ -71,7 +72,7 @@ func (r *Registrator) syncFileData(ctx context.Context, server string, filename 
 			continue
 		}
 		if lastChksum == chksum {
-			return nil
+			return false, nil
 		}
 
 		ok, _ := r.setFileData(chksumKey, chksum, dataKey, data, lastVer)
@@ -80,7 +81,11 @@ func (r *Registrator) syncFileData(ctx context.Context, server string, filename 
 		}
 		time.Sleep(time.Second)
 	}
-	return ctx.Err()
+	err := ctx.Err()
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (r *Registrator) notifyUpdate(ctx context.Context) error {
@@ -91,6 +96,7 @@ func (r *Registrator) notifyUpdate(ctx context.Context) error {
 			time.Sleep(time.Second)
 			continue
 		}
+		r.update = false
 		break
 	}
 	return ctx.Err()
@@ -117,12 +123,18 @@ func (r *Registrator) RegisterFiles(ctx context.Context, server string, files []
 		if err != nil {
 			return err
 		}
-		err = r.syncFileData(ctx, server, f.GetName(), compressbuf.Bytes())
+		ok, err := r.syncFileData(ctx, server, f.GetName(), compressbuf.Bytes())
 		if err != nil {
 			return err
 		}
+		if ok {
+			r.update = true
+		}
 	}
-	return r.notifyUpdate(ctx)
+	if r.update {
+		return r.notifyUpdate(ctx)
+	}
+	return nil
 }
 
 func NewRegistrator(client *liteconsul.Client, prefix string) *Registrator {

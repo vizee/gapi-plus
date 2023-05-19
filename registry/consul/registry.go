@@ -130,6 +130,7 @@ func (r *Registry[U]) Sync(ctx context.Context, force bool) error {
 		r.servers = make(map[string]*serverInfo)
 	}
 
+	servers := make(map[string]bool)
 	var group string
 	start := 0
 	for i := range entries {
@@ -142,12 +143,14 @@ func (r *Registry[U]) Sync(ctx context.Context, force bool) error {
 		serverName := fname[:slash]
 		if i == 0 {
 			group = serverName
+			servers[group] = true
 		} else if group != serverName {
 			err := r.syncServerFiles(ctx, keyPrefix, group, entries[start:i])
 			if err != nil {
 				return err
 			}
 			group = serverName
+			servers[group] = true
 			start = i
 		}
 	}
@@ -157,6 +160,19 @@ func (r *Registry[U]) Sync(ctx context.Context, force bool) error {
 			return err
 		}
 	}
+
+	if len(r.servers) != len(servers) {
+		for name := range r.servers {
+			if !servers[name] {
+				delete(r.servers, name)
+				err := r.updater.Update(name, nil)
+				if err != nil {
+					return err
+				}
+			}
+		}
+	}
+
 	return nil
 }
 
