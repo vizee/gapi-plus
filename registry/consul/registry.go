@@ -15,48 +15,39 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
-type Updater interface {
-	Update(server string, fds []*descriptorpb.FileDescriptorProto) error
-}
-
-type fileInfo struct {
-	fd    *descriptorpb.FileDescriptorProto
-	index uint64
+type ServerFileManager interface {
+	UpdateServer(server string, updated []*descriptorpb.FileDescriptorProto, deleted []string) error
+	RemoveServer(server string) error
 }
 
 type serverInfo struct {
-	files map[string]*fileInfo
-	dirty bool
+	files map[string]uint64
 }
 
-type Registry[U Updater] struct {
+type Registry struct {
 	prefix     string
 	client     *liteconsul.Client
-	updater    U
+	manager    ServerFileManager
 	knownIndex uint64
 	servers    map[string]*serverInfo
 	mu         sync.Mutex
 }
 
-func (r *Registry[U]) syncServerFiles(ctx context.Context, prefix string, server string, entries []liteconsul.KVEntry) error {
+func (r *Registry) syncServerFiles(ctx context.Context, prefix string, server string, entries []liteconsul.KVEntry) error {
 	si := r.servers[server]
 	if si == nil {
 		si = &serverInfo{
-			files: make(map[string]*fileInfo),
+			files: make(map[string]uint64),
 		}
 		r.servers[server] = si
 	}
 
-	dirty := false
+	updated := make([]*descriptorpb.FileDescriptorProto, 0, 3)
 	for i := range entries {
 		e := &entries[i]
 		fname := e.Key[len(prefix)+len(server)+1:]
-		newFile := false
-		fi := si.files[fname]
-		if fi == nil {
-			fi = &fileInfo{}
-			newFile = true
-		} else if fi.index == e.ModifyIndex {
+		modIndex, found := si.files[fname]
+		if found && modIndex == e.ModifyIndex {
 			continue
 		}
 
@@ -65,15 +56,12 @@ func (r *Registry[U]) syncServerFiles(ctx context.Context, prefix string, server
 			return err
 		}
 
-		fi.fd = fd
-		fi.index = e.ModifyIndex
+		updated = append(updated, fd)
 
-		if newFile {
-			si.files[fname] = fi
-		}
-		dirty = true
+		si.files[fname] = e.ModifyIndex
 	}
 
+	var deleted []string
 	if len(si.files) > len(entries) {
 		inuse := make(map[string]bool, len(entries))
 		for i := range entries {
@@ -81,34 +69,19 @@ func (r *Registry[U]) syncServerFiles(ctx context.Context, prefix string, server
 			fname := e.Key[len(prefix)+len(server)+1:]
 			inuse[fname] = true
 		}
+		deleted = make([]string, 0, len(si.files)-len(entries))
 		for name := range si.files {
 			if !inuse[name] {
 				delete(si.files, name)
+				deleted = append(deleted, name)
 			}
 		}
-		dirty = true
 	}
 
-	if dirty {
-		si.dirty = dirty
-	}
-
-	if si.dirty {
-		fds := make([]*descriptorpb.FileDescriptorProto, 0, len(si.files))
-		for _, fi := range si.files {
-			fds = append(fds, fi.fd)
-		}
-		err := r.updater.Update(server, fds)
-		if err != nil {
-			return err
-		}
-		si.dirty = false
-	}
-
-	return nil
+	return r.manager.UpdateServer(server, updated, deleted)
 }
 
-func (r *Registry[U]) Sync(ctx context.Context, force bool) error {
+func (r *Registry) Sync(ctx context.Context, force bool) error {
 	keyPrefix := fmt.Sprintf("%s/data/", r.prefix)
 
 	r.mu.Lock()
@@ -130,7 +103,7 @@ func (r *Registry[U]) Sync(ctx context.Context, force bool) error {
 		r.servers = make(map[string]*serverInfo)
 	}
 
-	servers := make(map[string]bool)
+	serving := make(map[string]bool)
 	var group string
 	start := 0
 	for i := range entries {
@@ -143,14 +116,14 @@ func (r *Registry[U]) Sync(ctx context.Context, force bool) error {
 		serverName := fname[:slash]
 		if i == 0 {
 			group = serverName
-			servers[group] = true
+			serving[group] = true
 		} else if group != serverName {
 			err := r.syncServerFiles(ctx, keyPrefix, group, entries[start:i])
 			if err != nil {
 				return err
 			}
 			group = serverName
-			servers[group] = true
+			serving[group] = true
 			start = i
 		}
 	}
@@ -161,11 +134,12 @@ func (r *Registry[U]) Sync(ctx context.Context, force bool) error {
 		}
 	}
 
-	if len(r.servers) != len(servers) {
+	if len(r.servers) != len(serving) {
 		for name := range r.servers {
-			if !servers[name] {
+			if !serving[name] {
 				delete(r.servers, name)
-				err := r.updater.Update(name, nil)
+
+				err := r.manager.RemoveServer(name)
 				if err != nil {
 					return err
 				}
@@ -176,7 +150,7 @@ func (r *Registry[U]) Sync(ctx context.Context, force bool) error {
 	return nil
 }
 
-func (r *Registry[U]) Watch(ctx context.Context, update func() error) error {
+func (r *Registry) Watch(ctx context.Context, update func() error) error {
 	key := fmt.Sprintf("%s/notify", r.prefix)
 	lastNotified := uint64(0)
 	for ctx.Err() == nil {
@@ -200,11 +174,11 @@ func (r *Registry[U]) Watch(ctx context.Context, update func() error) error {
 	return nil
 }
 
-func NewRegistry[U Updater](client *liteconsul.Client, prefix string, updater U) *Registry[U] {
-	return &Registry[U]{
+func NewRegistry(client *liteconsul.Client, prefix string, manager ServerFileManager) *Registry {
+	return &Registry{
 		prefix:     strings.TrimPrefix(prefix, "/"),
 		client:     client,
-		updater:    updater,
+		manager:    manager,
 		knownIndex: 0,
 	}
 }
