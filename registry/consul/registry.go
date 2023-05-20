@@ -167,7 +167,7 @@ func (r *Registry) Watch(ctx context.Context, update func() error) error {
 		}
 		err = update()
 		if err != nil {
-			return nil
+			return err
 		}
 		lastNotified = meta.LastIndex
 	}
