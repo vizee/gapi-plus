@@ -7,20 +7,31 @@ option go_package = "github.com/vizee/gapi-plus/testdata/pdtest";
 import "gapi/annotation.proto";
 import "inc.proto";
 
+// 测试服务
+// @tag test
 service TestService {
     option (gapi.server) = "test-server";
-    option (gapi.default_handler) = "test-default_handler";
+    option (gapi.default_handler) = "jsonapi";
     option (gapi.default_timeout) = 5000;
     option (gapi.path_prefix) = "/path/prefix";
     option (gapi.use) = "service-use-0";
     option (gapi.use) = "service-use-1";
 
+    // @summary Add
+    // @description 加法
+    // @deprecated
     rpc Add (AddRequest) returns (AddResponse) {
         option (gapi.http) = {
             post: "/add"
         };
     }
 
+    // @summary Say
+    // @description 嗦点撒
+    // @accept x-www-form-urlencoded
+    // @produce json
+    // @param "" body gapi.testdata.pdtest.SayRequest true "输入"
+    // @success 200 {object} gapi.testdata.pdtest.SayResponse
     rpc Say (SayRequest) returns (SayResponse) {
         option (gapi.http) = {
             post: "/say"
@@ -33,21 +44,29 @@ service TestService {
 }
 
 message AddRequest {
+    // 参数 a
     int32 a = 1;
+    // 参数 b
     int32 b = 2;
 }
 
 message AddResponse {
+    // 结果
     int32 sum = 1;
 }
 
 message SayRequest {
+    // 输入参数
     string what = 1;
+    // 用户 uid
     string userId = 2 [(gapi.alias) = "uid", (gapi.bind) = FROM_CONTEXT];
 }
 
+// 用户描述
 message User {
+    // 名称
     string name = 1;
+    // 年龄
     int32 age = 2;
 }
 
