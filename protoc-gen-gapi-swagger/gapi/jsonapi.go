@@ -2,9 +2,10 @@ package gapi
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/go-openapi/spec"
-	"github.com/vizee/gapi-plus/protoc-gen-gapi-swagger/gen"
+	"github.com/vizee/gapi-plus/protoc-gen-gapi-swagger/annotations"
 	"google.golang.org/protobuf/compiler/protogen"
 )
 
@@ -22,7 +23,7 @@ func addToSet(s []string, v string) []string {
 	return s
 }
 
-func JsonAPI(method *protogen.Method, annotations gen.Annotations, operation *spec.Operation) {
+func JsonAPI(method *protogen.Method, annotations annotations.Annotations, operation *spec.Operation) {
 	const jsonType = "application/json"
 	operation.Consumes = addToSet(operation.Consumes, jsonType)
 	operation.Produces = addToSet(operation.Produces, jsonType)
@@ -41,5 +42,25 @@ func JsonAPI(method *protogen.Method, annotations gen.Annotations, operation *sp
 	if operation.Responses.StatusCodeResponses == nil {
 		operation.Responses.StatusCodeResponses = make(map[int]spec.Response)
 	}
-	operation.Responses.StatusCodeResponses[200] = *spec.NewResponse().WithSchema(spec.RefSchema(fmt.Sprintf("#/definitions/%s", method.Output.Desc.FullName())))
+
+	schema := spec.RefSchema(fmt.Sprintf("#/definitions/%s", method.Output.Desc.FullName()))
+
+	var fieldName string
+	out := annotations.Get("jsonapi.out").Line(0)
+	slash := strings.LastIndexByte(out, '/')
+	if slash >= 0 {
+		refType := out[:slash]
+		fieldName = out[slash+1:]
+		ref := spec.RefSchema(fmt.Sprintf("#/definitions/%s", refType))
+		schema = spec.ComposedSchema(*ref, spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Type: []string{"object"},
+				Properties: spec.SchemaProperties{
+					fieldName: *schema,
+				},
+			},
+		})
+	}
+
+	operation.Responses.StatusCodeResponses[200] = *spec.NewResponse().WithSchema(schema)
 }

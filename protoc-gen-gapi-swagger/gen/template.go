@@ -2,6 +2,7 @@ package gen
 
 import (
 	"github.com/go-openapi/spec"
+	"github.com/vizee/gapi-plus/protoc-gen-gapi-swagger/annotations"
 	"google.golang.org/protobuf/compiler/protogen"
 )
 
@@ -22,7 +23,7 @@ type HandlerTemplate struct {
 	Responses  *spec.Responses  `json:"responses"`
 }
 
-func (ht *HandlerTemplate) Handle(method *protogen.Method, annotations Annotations, operation *spec.Operation) {
+func (ht *HandlerTemplate) Handle(method *protogen.Method, annotations annotations.Annotations, operation *spec.Operation) {
 	operation.Consumes = append(operation.Consumes, ht.Consumes...)
 	operation.Produces = append(operation.Produces, ht.Produces...)
 	operation.Parameters = append(operation.Parameters, ht.Parameters...)
@@ -53,7 +54,7 @@ type MiddlewareTemplate struct {
 	Responses  *spec.Responses       `json:"responses"`
 }
 
-func (mt *MiddlewareTemplate) Handle(method *protogen.Method, annotations Annotations, operation *spec.Operation) {
+func (mt *MiddlewareTemplate) Handle(method *protogen.Method, annotations annotations.Annotations, operation *spec.Operation) {
 	operation.Parameters = append(operation.Parameters, mt.Parameters...)
 	operation.Security = append(operation.Security, mt.Security...)
 	if mt.Responses != nil {

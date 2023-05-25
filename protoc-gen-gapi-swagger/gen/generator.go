@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/go-openapi/spec"
+	"github.com/vizee/gapi-plus/protoc-gen-gapi-swagger/annotations"
 	"github.com/vizee/gapi-proto-go/gapi"
 	gapiproto "github.com/vizee/gapi-proto-go/gapi"
 	"google.golang.org/protobuf/compiler/protogen"
@@ -13,7 +14,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-type MethodHandler func(method *protogen.Method, annotations Annotations, operation *spec.Operation)
+type MethodHandler func(method *protogen.Method, annotations annotations.Annotations, operation *spec.Operation)
 
 type Config struct {
 	Out                *string
@@ -185,8 +186,8 @@ func (g *Generator) parseService(service *protogen.Service) error {
 	commonUse, _ := proto.GetExtension(serviceOpts, gapiproto.E_Use).([]string)
 	pathPrefix, _ := proto.GetExtension(serviceOpts, gapiproto.E_PathPrefix).(string)
 
-	serviceAns := extractAnnotations(string(service.Comments.Leading))
-	serviceTags := parseLineFields(serviceAns.Get("tags").Line(-1), ',')
+	serviceAns := annotations.ExtractAnnotations(string(service.Comments.Leading))
+	serviceTags := annotations.ParseLineFields(serviceAns.Get("tags").Line(-1), ',')
 
 	for _, method := range service.Methods {
 		httpOpt, _ := proto.GetExtension(method.Desc.Options(), gapiproto.E_Http).(*gapi.Http)
@@ -203,9 +204,9 @@ func (g *Generator) parseService(service *protogen.Service) error {
 			return err
 		}
 
-		methodAns := extractAnnotations(string(method.Comments.Leading))
+		methodAns := annotations.ExtractAnnotations(string(method.Comments.Leading))
 
-		op, err := parseOperationFromAnnotations(string(method.Desc.FullName()), methodAns)
+		op, err := annotations.ParseOperationFromAnnotations(string(method.Desc.FullName()), methodAns)
 		if err != nil {
 			return err
 		}

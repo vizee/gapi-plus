@@ -19,6 +19,7 @@ service TestService {
 
     // @summary Add
     // @description 加法
+    // @jsonapi.out httpview.BaseView/out
     // @deprecated
     rpc Add (AddRequest) returns (AddResponse) {
         option (gapi.http) = {
@@ -31,7 +32,7 @@ service TestService {
     // @accept x-www-form-urlencoded
     // @produce json
     // @param "" body gapi.testdata.pdtest.SayRequest true "输入"
-    // @success 200 {object} gapi.testdata.pdtest.SayResponse
+    // @success 200 {object} "httpview.BaseView{data = gapi.testdata.pdtest.SayResponse, message = string}" "200 响应"
     rpc Say (SayRequest) returns (SayResponse) {
         option (gapi.http) = {
             post: "/say"
