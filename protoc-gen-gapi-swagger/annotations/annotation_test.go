@@ -44,3 +44,26 @@ func TestParseLineFields(t *testing.T) {
 		})
 	}
 }
+
+func TestGetFieldValue(t *testing.T) {
+	type args struct {
+		fields []string
+		i      int
+	}
+	tests := []struct {
+		name string
+		args args
+		want string
+	}{
+		{name: "empty", args: args{fields: []string{}, i: 0}, want: ""},
+		{name: "simpe", args: args{fields: []string{"abc"}, i: 0}, want: "abc"},
+		{name: "quoted", args: args{fields: []string{"\"abc\""}, i: 0}, want: "abc"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := GetFieldValue(tt.args.fields, tt.args.i); got != tt.want {
+				t.Errorf("GetFieldValue() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
